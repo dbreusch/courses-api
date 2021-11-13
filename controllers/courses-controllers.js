@@ -1,13 +1,24 @@
 // courses-api: action functions
-// const dotenv = require('dotenv');
 const xlsx = require('xlsx');
 
 // const { createAndThrowError, createError } = require('../helpers/error');
+// const { getEnvVar } = require('../helpers/getEnvVar');
 const HttpError = require('../models/http-error');
 const Course = require('../models/course');
-// const { getEnvVar } = require('../helpers/getEnvVar');
 
-// dotenv.config();
+// // fake course data (to test addCourse)
+// const defaultCourse = {
+//   "n": "99",
+//   "Title": "A Course That Doesn't Exist",
+//   "Category": "DevOps",
+//   "Tools": "Kubernetes",
+//   "Hours": "12.3",
+//   "Sections": "11",
+//   "Lectures": "345",
+//   "Instructor": "Albert Einstein",
+//   "Bought": "2020-04-01T08:00:00.000Z",
+//   "Finished": "2021-10-31T07:00:00.000Z"
+// };
 
 // utility functions start here!
 
@@ -23,16 +34,108 @@ const dateObject = inputDate => {
   return outputDate;
 };
 
+// load data from an Excel spreadsheet
+const loadExcelData = filePath => {
+  const workbook = xlsx.readFile(filePath, { cellDates: true });
+  const sheetNames = workbook.SheetNames;
+  const data = xlsx.utils.sheet_to_json(
+    workbook.Sheets[sheetNames[0]]
+  );
+
+  return data;
+};
+
+// add a course to the database
+const addCourseToDb = async course => {
+  const startedDate = dateObject(null); // assumed to be unknown
+  let wasStarted = false;
+  let wasCompleted = false;
+
+  const completedDate = dateObject(course.Finished);
+  if (completedDate > startedDate) {
+    wasCompleted = true;
+    wasStarted = true;
+  }
+  const title = course.Title.replace(/[\n\r]+/g, ' ');
+
+  // create a new Course object
+  newCourse = new Course({
+    purchaseSequence: course.n,
+    title: title,
+    category: course.Category,
+    tools: course.Tools.replace(/[\n\r]+/g, ' '),
+    hours: course.Hours,
+    sections: course.Sections,
+    lectures: course.Lectures,
+    instructor: course.Instructor.replace(/[\n\r]+/g, ' '),
+    dateBought: dateObject(course.Bought),
+    dateStarted: startedDate,
+    started: wasStarted,
+    dateCompleted: completedDate,
+    completed: wasCompleted,
+    description: '',
+    notes: ''
+  });
+
+  // save new Course object to the database
+  try {
+    // console.log(`Adding ${title}`);
+    await newCourse.save();
+  } catch (err) {
+    console.log('Error saving new Course object');
+    console.log(err);
+    return next(new HttpError('Adding new course failed, please try again.', 500));
+  }
+
+  return newCourse;
+};
+
+// delete a course from the database
+const deleteCourseFromDb = async courseId => {
+  let course;
+  try {
+    course = await Course.findById(courseId);
+  }
+  catch (err) {
+    return next(new HttpError('Something went wrong in findById, could not delete course!', 500));
+  }
+
+  if (!course) {
+    return next(new HttpError('Could not find course for provided id.', 404));
+  }
+
+  const title = course.title;
+  try {
+    // delete course
+    await course.remove();
+  } catch (err) {
+    return next(new HttpError('Something went wrong, could not delete course!', 500));
+  }
+
+  return title;
+};
+
 // exported functions start here!
 
-// return a single course (method pending!)
+// return a single course
 const getCourse = async (req, res, next) => {
   const courseId = req.params.cid;
 
-  res.status(201).json({
-    message: "Done!"
-  });
-}
+  let course;
+  try {
+    course = await Course.findById(courseId);
+  }
+  catch (err) {
+    return next(new HttpError('Something went wrong in findById, could not delete course!', 500));
+  }
+
+  if (!course) {
+    return next(new HttpError('Could not find course for provided id.', 404));
+  }
+
+  console.log(`"${course.title}"`);
+  res.status(201).json(course);
+};
 
 // return all courses
 const getCourses = async (req, res, next) => {
@@ -43,104 +146,96 @@ const getCourses = async (req, res, next) => {
     return next(new HttpError('Fetching courses failed, please try again later.', 500));
   }
 
+  console.log(`${courses.length} courses listed`);
   res.status(201).json({ courses: courses.map(course => course.toObject({ getters: true })) });
 };
 
-// add single course (method pending!)
+// add single course
 const addCourse = async (req, res, next) => {
-  const courseId = req.params.cid;
+  const { course } = req.body;
 
-  res.status(201).json({
-    message: "Done!"
-  });
+  let newCourse;
+  try {
+    newCourse = await addCourseToDb(course);
+  } catch (err) {
+    // console.log(err);
+    return next(new HttpError('addCourse: Add course failed, please try again later.', 500));
+  }
+
+  console.log(`Added course "${newCourse.title}"`);
+  res.status(200).json(newCourse);
 };
 
 // add multiple courses (from Excel file)
 const addCourses = async (req, res, next) => {
-  const filePath = "/Users/dbr/Dropbox/Udemy/My Course Catalog.xlsx";
+  const { filePath } = req.body;
 
-  const workbook = xlsx.readFile(
-    filePath,
-    { cellDates: true }
-  );
-  const sheetNames = workbook.SheetNames;
-
-  const data = xlsx.utils.sheet_to_json(
-    workbook.Sheets[sheetNames[0]]
-  );
-
-  const startedDate = dateObject(null);   // we just don't know this!
-  let wasStarted;
-  let completedDate;
-  let wasCompleted;
-  let title;
-  let newCourse;
+  try {
+    data = loadExcelData(filePath);
+  } catch (err) {
+    return next(new HttpError('addCourses: Get course data failed, please try again later.', 500));
+  }
 
   data.map(async course => {
-    title = course.Title.replace(/[\n\r]+/g, ' ');
-    console.log(title);
-
-    completedDate = dateObject(course.Finished);
-    if (completedDate > startedDate) {
-      wasCompleted = true;
-      wasStarted = true;
-    } else {
-      wasCompleted = false;
-      wasStarted = false;
-    }
-
-    // create a new Course object
-    newCourse = new Course({
-      purchaseSequence: course.n,
-      title: title,
-      category: course.Category,
-      tools: course.Tools.replace(/[\n\r]+/g, ' '),
-      hours: course.Hours,
-      sections: course.Sections,
-      lectures: course.Lectures,
-      instructor: course.Instructor.replace(/[\n\r]+/g, ' '),
-      dateBought: dateObject(course.Bought),
-      dateStarted: startedDate,
-      started: wasStarted,
-      dateCompleted: completedDate,
-      completed: wasCompleted,
-      description: '',
-      notes: ''
-    });
-
-    // console.log(newCourse);
-
-    // save new Course object to the database
     try {
-      // console.log('Trying to save new User object');
-      await newCourse.save();
+      await addCourseToDb(course);
     } catch (err) {
-      console.log('Error saving new Course object');
-      console.log(err);
-      return next(new HttpError('Adding new course failed, please try again.', 500));
+      // console.log(err);
+      return next(new HttpError('addCourses: Add course failed, please try again later.', 500));
     }
-
   });
 
-  res.status(201).json({
-    message: "Done!"
-  });
+  // get the new courses so they can be returned
+  try {
+    const newCourses = await Course.find({});
+    console.log(`${newCourses.length} courses added`);
+    res.status(200).json(newCourses);
+  } catch (err) {
+    // console.log(err);
+    return next(new HttpError('addCourses: List-after-add-courses failed, please try again later.', 500));
+  }
 };
 
-// delete single course (method pending!)
+// delete single course
 const deleteCourse = async (req, res, next) => {
   const courseId = req.params.cid;
 
+  let title = "";
+  try {
+    title = await deleteCourseFromDb(courseId);
+  } catch (err) {
+    // console.log(err);
+    return next(new HttpError('deleteCourse: Delete course failed, please try again later.', 500));
+  }
+
+  console.log(`Deleted "${title}"`);
   res.status(201).json({
-    message: "Done!"
+    message: `Deleted ${courseId}`
   });
 };
 
-// delete all courses (method pending!)
+// delete all courses
 const deleteCourses = async (req, res, next) => {
+  let courses;
 
+  try {
+    courses = await Course.find({});
+  } catch (err) {
+    return next(new HttpError('deleteCourses: Fetching courses failed, please try again later.', 500));
+  }
+
+  courses.map(async course => {
+    try {
+      await deleteCourseFromDb(course._id);
+    } catch (err) {
+      return next(new HttpError('deleteCourse: Delete course failed, please try again later.', 500));
+    }
+  }
+  );
+
+  console.log(`${courses.length} courses deleted`);
   res.status(201).json({
-    message: "Done!"
+    message: `${courses.length} courses deleted`
   });
 };
 

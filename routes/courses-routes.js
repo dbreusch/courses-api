@@ -17,13 +17,13 @@ router.get('/', coursesControllers.getCourses);
 
 // add a single course
 router.post(
-  '/add/:cid',
+  '/addCourse',
   coursesControllers.addCourse
 );
 
 // add multiple courses
 router.post(
-  '/add',
+  '/addCourses',
   coursesControllers.addCourses
 );
 
