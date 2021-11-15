@@ -1,5 +1,6 @@
 // courses-api: action functions
 const xlsx = require('xlsx');
+const { validationResult } = require('express-validator');
 
 // const { createAndThrowError, createError } = require('../helpers/error');
 // const { getEnvVar } = require('../helpers/getEnvVar');
@@ -239,16 +240,43 @@ const deleteCourses = async (req, res, next) => {
   });
 };
 
-// update single course (method pending!)
+// update single course (PATCH)
+// starting with most common fields
+// to do ALL of them will require some more complex coding
 const updateCourse = async (req, res, next) => {
   const courseId = req.params.cid;
 
-  res.status(201).json({
-    message: "Done!"
-  });
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    console.log(errors);
+    return next(new HttpError('updateCourse: Invalid inputs passed, please check your data.', 422));
+  }
+
+  const { title, description, notes } = req.body;
+
+  let course;
+  try {
+    course = await Course.findById(courseId);
+  }
+  catch (err) {
+    return next(new HttpError('updateCourse: Something went wrong, could not update course!', 500));
+  }
+
+  course.title = title;
+  course.description = description;
+  course.notes = notes;
+
+  try {
+    await course.save();
+  } catch (err) {
+    return next(new HttpError('updateCourse: Something went wrong, could not update place!', 500));
+  }
+
+  console.log(`Course "${course.title}" updated`)
+  res.status(200).json({ course: course.toObject({ getters: true }) });
 };
 
-
+// exports
 exports.getCourse = getCourse;
 exports.getCourses = getCourses;
 exports.addCourse = addCourse;
