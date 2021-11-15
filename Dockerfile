@@ -10,4 +10,4 @@ COPY . .
 
 EXPOSE 3001
 
-CMD [ "node", "courses-app.js" ]
+CMD [ "node", "coursesdb-app.js" ]

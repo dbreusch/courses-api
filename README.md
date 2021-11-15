@@ -1,4 +1,4 @@
-# courses-api
+# coursesdb-api
 A simple API to access and manage the courses database.
 
 ## Environment variables:

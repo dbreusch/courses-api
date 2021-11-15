@@ -1,8 +1,8 @@
 {
-  "name": "courses-api",
+  "name": "coursesdb-api",
   "version": "1.0.0",
   "description": "",
-  "main": "courses-app.js",
+  "main": "coursesdb-app.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },

@@ -1,4 +1,4 @@
-// courses-api: main app
+// coursesdb-api: main app
 
 const express = require('express');
 const mongoose = require('mongoose');
@@ -7,7 +7,7 @@ const MemoryStore = require('memorystore')(session);
 const dotenv = require('dotenv');
 
 const HttpError = require('./models/http-error');
-const coursesRoutes = require('./routes/courses-routes');
+const coursesdbRoutes = require('./routes/coursesdb-routes');
 const { getEnvVar } = require('./helpers/getEnvVar');
 
 dotenv.config();
@@ -45,11 +45,11 @@ app.use((req, res, next) => {
 });
 
 // define routes
-app.use(coursesRoutes);
+app.use(coursesdbRoutes);
 
 // this function only runs if nothing else responded first
 app.use((req, res, next) => {
-  const error = new HttpError('Could not find this route.', 404);
+  const error = new HttpError('coursesdb-api: Could not find this route.', 404);
   throw error;
 });
 
@@ -69,7 +69,7 @@ app.use((err, req, res, next) => {
   }
 
   res.status(err.code || 500);
-  res.json({ message: err.message || 'courses-app/generic error handler: Something went wrong.' });
+  res.json({ message: err.message || 'coursesdb-api/generic error handler: Something went wrong.' });
 });
 
 // connect to database, then start listening!
