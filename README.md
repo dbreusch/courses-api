@@ -2,6 +2,7 @@
 A simple API to access and manage the courses database.
 
 ## Environment variables:
+Copy env-example to .env and update with your local settings.
 
 ### MONGODB_USERNAME
 MongoDB login username.
