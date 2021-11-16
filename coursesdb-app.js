@@ -12,8 +12,8 @@ const { getEnvVar } = require('./helpers/getEnvVar');
 
 dotenv.config();
 
-// define port from environment or default to 3001
-const port = process.env.PORT || 3001;
+// define port from environment or default to 3002
+const port = process.env.PORT || 3002;
 
 // initialize express
 const app = express();
