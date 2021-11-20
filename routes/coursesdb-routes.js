@@ -4,6 +4,8 @@ const express = require('express');
 
 const coursesdbControllers = require('../controllers/coursesdb-controllers');
 
+const checkAuth = require('../middleware/check-auth');
+
 // initialize router
 const router = express.Router();
 
@@ -14,6 +16,9 @@ router.get('/:cid', coursesdbControllers.getCourse);
 
 // return a list of courses
 router.get('/', coursesdbControllers.getCourses);
+
+// add middleware to make sure subsequent requests have a valid token
+router.use(checkAuth);
 
 // add a single course
 router.post(

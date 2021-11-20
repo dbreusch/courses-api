@@ -1,0 +1,42 @@
+// validate an incoming request for its token
+// const jwt = require('jsonwebtoken');
+const axios = require('axios');
+
+const HttpError = require('../models/http-error');
+const { getEnvVar } = require('../helpers/getEnvVar');
+
+module.exports = async (req, res, next) => {
+  let token;
+  if (req.method === 'OPTIONS') { // ignore OPTIONS requests from browser
+    return next();
+  }
+  try {
+    token = req.headers.authorization.split(' ')[1]; // Authorization: 'Bearer TOKEN'
+    if (!token) {
+      console.log('check-auth: !token');
+      throw new Error('check-auth failed!');
+    }
+  } catch (err) {
+    console.log('check-auth: catch error');
+    return next(new HttpError('check-auth failed!', 403));
+  }
+
+  const authApiAddress = getEnvVar('AUTH_API_ADDRESS');
+  let decodedToken;
+  try {
+    // console.log("Getting id from auth-api");
+    decodedToken = await axios.post(
+      `http://${authApiAddress}/verify-token`,
+      {
+        "token": token
+      }
+    );
+    req.userData = {
+      userId: decodedToken.data.uid
+    };
+    next();
+  } catch (err) {
+    console.log('check-auth: verify token error');
+    return next(new HttpError('check-auth verify token error!', 403));
+  }
+};

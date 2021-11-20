@@ -47,7 +47,7 @@ const loadExcelData = filePath => {
 };
 
 // add a course to the database
-const addCourseToDb = async course => {
+const addCourseToDb = async (course, creator) => {
   const startedDate = dateObject(null); // assumed to be unknown
   let wasStarted = false;
   let wasCompleted = false;
@@ -58,6 +58,7 @@ const addCourseToDb = async course => {
     wasStarted = true;
   }
   const title = course.Title.replace(/[\n\r]+/g, ' ');
+  const currDate = new Date();
 
   // create a new Course object
   newCourse = new Course({
@@ -75,7 +76,11 @@ const addCourseToDb = async course => {
     dateCompleted: completedDate,
     completed: wasCompleted,
     description: '',
-    notes: ''
+    notes: '',
+    creator: creator,
+    provider: '',
+    dateAdded: currDate,
+    dateUpdated: currDate
   });
 
   // save new Course object to the database
@@ -154,10 +159,13 @@ const getCourses = async (req, res, next) => {
 // add single course
 const addCourse = async (req, res, next) => {
   const { course } = req.body;
+  const creator = req.userData.userId;
+
+  console.log(`Creator = ${creator}`);
 
   let newCourse;
   try {
-    newCourse = await addCourseToDb(course);
+    newCourse = await addCourseToDb(course, creator);
   } catch (err) {
     // console.log(err);
     return next(new HttpError('coursesdb-controllers: Add course failed, please try again later.', 500));
@@ -170,6 +178,7 @@ const addCourse = async (req, res, next) => {
 // add multiple courses (from Excel file)
 const addCourses = async (req, res, next) => {
   const { filePath } = req.body;
+  const creator = req.userData.userId;
 
   try {
     data = loadExcelData(filePath);
@@ -200,6 +209,7 @@ const addCourses = async (req, res, next) => {
 // delete single course
 const deleteCourse = async (req, res, next) => {
   const courseId = req.params.cid;
+  const creator = req.userData.userId;
 
   let title = "";
   try {
@@ -217,6 +227,7 @@ const deleteCourse = async (req, res, next) => {
 
 // delete all courses
 const deleteCourses = async (req, res, next) => {
+  const creator = req.userData.userId;
   let courses;
 
   try {
@@ -245,6 +256,7 @@ const deleteCourses = async (req, res, next) => {
 // to do ALL of them will require some more complex coding
 const updateCourse = async (req, res, next) => {
   const courseId = req.params.cid;
+  const creator = req.userData.userId;
 
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -265,6 +277,8 @@ const updateCourse = async (req, res, next) => {
   course.title = title;
   course.description = description;
   course.notes = notes;
+  const currDate = new Date();
+  course.dateUpdated = currDate;
 
   try {
     await course.save();
@@ -272,7 +286,7 @@ const updateCourse = async (req, res, next) => {
     return next(new HttpError('coursesdb-controllers: Something went wrong, could not update place!', 500));
   }
 
-  console.log(`Course "${course.title}" updated`)
+  console.log(`Course "${course.title}" updated`);
   res.status(200).json({ course: course.toObject({ getters: true }) });
 };
 

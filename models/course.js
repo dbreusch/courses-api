@@ -19,7 +19,11 @@ const courseSchema = new Schema({
   dateCompleted: { type: Date, required: true },
   completed: { type: Boolean, required: false },
   description: { type: String, required: false },
-  notes: { type: String, required: false }
+  notes: { type: String, required: false },
+  creator: { type: mongoose.Types.ObjectId, required: true, ref: 'User' },
+  provider: { type: String, required: false },
+  dateAdded: { type: Date, required: false },
+  dateUpdated: { type: Date, required: false }
 });
 
 module.exports = mongoose.model('Course', courseSchema);
