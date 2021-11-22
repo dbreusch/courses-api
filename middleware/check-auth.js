@@ -1,5 +1,5 @@
-// validate an incoming request for its token
-// const jwt = require('jsonwebtoken');
+// middleware to validate an incoming request for a token
+// validation is done by auth-api
 const axios = require('axios');
 
 const HttpError = require('../models/http-error');
@@ -17,7 +17,7 @@ module.exports = async (req, res, next) => {
       throw new Error('check-auth failed!');
     }
   } catch (err) {
-    console.log('check-auth: catch error');
+    console.log('check-auth: Authorization token missing!');
     return next(new HttpError('check-auth failed!', 403));
   }
 
@@ -26,7 +26,7 @@ module.exports = async (req, res, next) => {
   try {
     // console.log("Getting id from auth-api");
     decodedToken = await axios.post(
-      `http://${authApiAddress}/verify-token`,
+      `https://${authApiAddress}/verify-token`,
       {
         "token": token
       }
