@@ -25,6 +25,7 @@ module.exports = async (req, res, next) => {
   let decodedToken;
   try {
     // console.log("Getting id from auth-api");
+    // process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
     decodedToken = await axios.post(
       `https://${authApiAddress}/verify-token`,
       {
