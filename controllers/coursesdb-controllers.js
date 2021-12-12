@@ -1,6 +1,7 @@
 // coursesdb-controllers: action functions
 const xlsx = require('xlsx');
 const { validationResult } = require('express-validator');
+const mongoose = require('mongoose');
 
 const { createAndThrowError, createError } = require('../helpers/error');
 // const { getEnvVar } = require('../helpers/getEnvVar');
@@ -118,13 +119,44 @@ const addCourseToDb = async (course, creator) => {
     dateUpdated: currDate
   });
 
-  // save new Course object to the database
+  // look for User in the database
+  let user;
   try {
-    // console.log(`Adding ${title}`);
-    await newCourse.save();
+    user = await User.findById(creator);
   } catch (err) {
-    console.log('Error saving new Course object');
-    createAndThrowError('coursesdb-api: Saving new course failed, please try again.', 500);
+    return next(new HttpError('coursesdb-api: Creatng course failed, please try again.', 500));
+  }
+
+  if (!user) {
+    return next(new HttpError('coursesdb-api: Could not find user for provided id.', 404));
+  }
+
+  // save new Course object to the database
+  // try {
+  //   // console.log(`Adding ${title}`);
+  //   await newCourse.save();
+  // } catch (err) {
+  //   console.log('Error saving new Course object');
+  //   createAndThrowError('coursesdb-api: Saving new course failed, please try again.', 500);
+  // }
+
+  try {
+    const sess = await mongoose.startSession();
+    sess.startTransaction();
+
+    // save the new place
+    await newCourse.save({ session: sess });
+
+    // link the course to the user (mongoose automatically adds just the place id)
+    user.courses.push(newCourse);
+    await user.save({ session: sess });
+
+    // commit
+    await sess.commitTransaction();
+  } catch (err) {
+    // return next(new HttpError('coursesdb-api: Creating course failed (commit), please try again.', 500));
+      console.log(err);
+      createAndThrowError('coursesdb-api: Saving new course failed, please try again.', 500);
   }
 
   return newCourse;
