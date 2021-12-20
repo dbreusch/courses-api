@@ -4,6 +4,7 @@ const express = require('express');
 
 const coursesdbControllers = require('../controllers/coursesdb-controllers');
 
+const fileUpload = require('../middleware/file-upload');
 const checkAuth = require('../middleware/check-auth');
 
 // initialize router
@@ -29,6 +30,7 @@ router.post(
 // add multiple courses
 router.post(
   '/addCourses',
+  fileUpload.single('xlsfile'),
   coursesdbControllers.addCourses
 );
 

@@ -8,6 +8,7 @@ const { createAndThrowError, createError } = require('../helpers/error');
 const HttpError = require('../models/http-error');
 const Course = require('../models/course');
 const User = require('../models/user');
+const user = require('../models/user');
 
 // // fake course data (to test addCourse)
 // const defaultCourse = {
@@ -43,124 +44,195 @@ const dateObject = inputDate => {
 
 // load data from an Excel spreadsheet
 const loadExcelData = filePath => {
+  let workbook, sheetNames, data;
+
+  // read file
   try {
-    const workbook = xlsx.readFile(filePath, { cellDates: true });
-  } catch {
+    workbook = xlsx.readFile(filePath, { cellDates: true });
+  } catch (err) {
+    console.log('loadExcelData: readfile failure');
+    console.log(err);
     createAndThrowError('coursesdb-api: Could not load Excel file!', 500);
   }
-  const sheetNames = workbook.SheetNames;
+
+  // get sheet names
   try {
-    const data = xlsx.utils.sheet_to_json(
+    sheetNames = workbook.SheetNames;
+  } catch (err) {
+    console.log('loadExcelData: sheetnames failure');
+    console.log(err);
+    createAndThrowError('coursesdb-api: Could not load Excel file!', 500);
+  }
+
+  // convert Excel format to JSON
+  try {
+    data = xlsx.utils.sheet_to_json(
       workbook.Sheets[sheetNames[0]]
     );
     return data;
   } catch {
+    console.log('loadExcelData: sheet_to_json failure');
+    console.log(err);
     createAndThrowError('coursesdb-api: Could not convert spreadsheet!', 500);
   }
 };
 
 // add a course to the database
 const addCourseToDb = async (course, creator) => {
-  const startedDate = dateObject(null); // assumed to be unknown
-  let wasStarted = false;
-  let wasCompleted = false;
+  return new Promise(async (resolve, reject) => {
 
-  const title = course.Title.replace(/[\n\r]+/g, ' ');
-  const instructor = course.Instructor.replace(/[\n\r]+/g, ' ');
+    const startedDate = dateObject(null); // assumed to be unknown
+    let wasStarted = false;
+    let wasCompleted = false;
 
-  // check for an existing course
-  let existingCourse;
-  try {
-    existingCourse = await Course.findOne(
-      {
-        $and: [
-          { title: title },
-          { instructor: instructor }
-        ]
-      }
-    );
-  } catch (err) {
-    console.log('coursesdb-api: Error checking for existing course');
-    createAndThrowError('coursesdb-api: Adding course failed, please try again later.', 500);
-  }
-  if (existingCourse) {
-    console.log('coursesdb-api: Existing course found');
-    createAndThrowError('coursesdb-api: Course exists already, please use edit instead.', 422);
-  }
+    const title = course.Title.replace(/[\n\r]+/g, ' ');
+    const instructor = course.Instructor.replace(/[\n\r]+/g, ' ');
 
-  // compute dates and boolean status vars
-  const completedDate = dateObject(course.Finished);
-  if (completedDate > startedDate) {
-    wasCompleted = true;
-    wasStarted = true;
-  }
-  const currDate = new Date();
+    // check for an existing course
+    let existingCourse;
+    try {
+      existingCourse = await Course.findOne(
+        {
+          $and: [
+            { title: title },
+            { instructor: instructor }
+          ]
+        }
+      );
+    } catch (err) {
+      console.log('coursesdb-api: Error checking for existing course');
+      reject(createAndThrowError('coursesdb-api: Adding course failed, please try again later.', 500));
+    }
+    if (existingCourse) {
+      console.log('coursesdb-api: Existing course found');
+      reject(createAndThrowError('coursesdb-api: Course exists already, please use edit instead.', 422));
+    }
 
-  // create a new Course object
-  const newCourse = new Course({
-    purchaseSequence: course.n,
-    title: title,
-    category: course.Category,
-    tools: course.Tools.replace(/[\n\r]+/g, ' '),
-    hours: course.Hours,
-    sections: course.Sections,
-    lectures: course.Lectures,
-    instructor: instructor,
-    dateBought: dateObject(course.Bought),
-    dateStarted: startedDate,
-    started: wasStarted,
-    dateCompleted: completedDate,
-    completed: wasCompleted,
-    description: '',
-    notes: '',
-    creator: creator,
-    provider: '',
-    dateAdded: currDate,
-    dateUpdated: currDate
-  });
+    // compute dates and boolean status vars
+    const completedDate = dateObject(course.Finished);
+    if (completedDate > startedDate) {
+      wasCompleted = true;
+      wasStarted = true;
+    }
+    const currDate = new Date();
 
-  // look for User in the database
-  let user;
-  try {
-    user = await User.findById(creator);
-  } catch (err) {
-    return next(new HttpError('coursesdb-api: Creatng course failed, please try again.', 500));
-  }
+    // create a new Course object
+    // Note: that the purchaseSequence field being referred to as "n" is an artifact
+    // of support for loading courses from an Excel spreadsheet, where this is the
+    // column title
+    const newCourse = new Course({
+      purchaseSequence: course.n,
+      title: title,
+      category: course.Category,
+      tools: course.Tools.replace(/[\n\r]+/g, ' '),
+      hours: course.Hours,
+      sections: course.Sections,
+      lectures: course.Lectures,
+      instructor: instructor,
+      dateBought: dateObject(course.Bought),
+      dateStarted: startedDate,
+      started: wasStarted,
+      dateCompleted: completedDate,
+      completed: wasCompleted,
+      description: course.desc,
+      notes: course.notes,
+      creator: creator,
+      provider: course.provider,
+      dateAdded: currDate,
+      dateUpdated: currDate
+    });
 
-  if (!user) {
-    return next(new HttpError('coursesdb-api: Could not find user for provided id.', 404));
-  }
+    // look for User in the database
+    let user;
+    try {
+      user = await User.findById(creator);
+    } catch (err) {
+      reject(createAndThrowError('coursesdb-api: Creating course failed, please try again.', 500));
+    }
 
-  // save new Course object to the database
-  // try {
-  //   // console.log(`Adding ${title}`);
-  //   await newCourse.save();
-  // } catch (err) {
-  //   console.log('Error saving new Course object');
-  //   createAndThrowError('coursesdb-api: Saving new course failed, please try again.', 500);
-  // }
+    if (!user) {
+      reject(createAndThrowError('coursesdb-api: Could not find user for provided id.', 404));
+    }
 
-  try {
-    const sess = await mongoose.startSession();
-    sess.startTransaction();
-
-    // save the new place
-    await newCourse.save({ session: sess });
-
-    // link the course to the user (mongoose automatically adds just the place id)
+    // link the COURSE to the USER (mongoose automatically adds just the place id)
     user.courses.push(newCourse);
-    await user.save({ session: sess });
 
-    // commit
-    await sess.commitTransaction();
-  } catch (err) {
-    // return next(new HttpError('coursesdb-api: Creating course failed (commit), please try again.', 500));
-      console.log(err);
-      createAndThrowError('coursesdb-api: Saving new course failed, please try again.', 500);
-  }
+    // ************************************************************************
+    // NOTE: using the "naive" approach to saving data since I was unable to get
+    //       the more "sophisticated" session/transaction-based approach to
+    //       work successfully.
+    // 12/17/21
+    // ************************************************************************
 
-  return newCourse;
+    // save the new COURSE and updated USER
+    // await newCourse.save();
+
+    // save the updated USER
+    // await user.save();
+
+    Promise.all(
+      [newCourse, user].map(obj => obj.save())
+    ).then(() => {
+      resolve(newCourse);
+    }
+    );
+
+    // resolve(newCourse);
+
+    // ************************************************************************
+    // NOTE: would prefer to use the more robust session/transaction-based code
+    //       below but I just can't get it to work!  The second call always
+    //       fails with a write conflict.
+    // 12/17/21
+    // ************************************************************************
+    // const transactionOptions = {
+    //   readPreference: 'primary',
+    //   readConcern: { level: 'local' },
+    //   writeConcern: { w: 'majority' }
+    // };
+
+    // let session;
+    // // Start the SESSION
+    // session = await mongoose.startSession();
+
+    // try {
+    //   await session.withTransaction(async () => {
+    //     // save the new COURSE
+    //     await newCourse.save({ session: session });
+
+    //     // save the updated USER
+    //     await user.save({ session: session });
+
+    //   }, transactionOptions);
+    // } finally {
+    //   // End the SESSION
+    //   await session.endSession();
+    // }
+
+    // try {
+    //   // Start the TRANSACTION
+    //   session.startTransaction();
+
+    //   // save the new COURSE
+    //   await newCourse.save({ session: session });
+
+    //   // save the updated USER
+    //   await user.save({ session: session });
+
+    //   // Commit the TRANSACTION
+    //   await session.commitTransaction();
+    // } catch (err) {
+    //   console.log(err);
+    //   await session.abortTransaction();
+    //   createAndThrowError('coursesdb-api: Saving new course failed, please try again.', 500);
+    // } finally {
+    //   // End the SESSION
+    //   await session.endSession();
+    // }
+    // ************************************************************************
+  });
 };
+
 
 // delete a course from the database
 const deleteCourseFromDb = async (courseId, creator) => {
@@ -184,7 +256,7 @@ const deleteCourseFromDb = async (courseId, creator) => {
     createAndThrowError('coursesdb-api: Invalid creator id.', 404);
   }
 
-  if (creator !== originalCreator) {
+  if (creator && creator !== originalCreator) {
     console.log('deleteCourseFromDb creator mismatch');
     createAndThrowError('coursesdb-api: Not the owner of this course, cannot be deleted.', 403);
   }
@@ -195,6 +267,25 @@ const deleteCourseFromDb = async (courseId, creator) => {
     await course.remove();
   } catch (err) {
     createAndThrowError('coursesdb-api: Something went wrong in remove, could not delete course!', 500);
+  }
+
+  // look for User in the database
+  let user;
+  try {
+    user = await User.findById(creator);
+  } catch (err) {
+    reject(createAndThrowError('coursesdb-api: Delete course failed, user not found.', 500));
+  }
+
+  if (!user) {
+    reject(createAndThrowError('coursesdb-api: Could not find user for provided id.', 404));
+  }
+  try {
+    // remove the COURSE from the USER
+    user.courses.pull(course);
+    await user.save();
+  } catch (err) {
+    createAndThrowError('coursesdb-api: Something went wrong in remove, could not delete user!', 500);
   }
 
   return title;
@@ -218,8 +309,8 @@ const getCourse = async (req, res, next) => {
     return next(new HttpError('courses-api: Could not find course for provided id.', 404));
   }
 
-  console.log(`"${course.title}"`);
-  res.status(201).json(course);
+  console.log(`getCourse: "${course.title}"`);
+  res.status(201).json({ course });
 };
 
 // return all courses
@@ -231,12 +322,18 @@ const getCourses = async (req, res, next) => {
     return next(new HttpError('courses-api: Fetching courses failed, please try again later.', 500));
   }
 
-  console.log(`${courses.length} courses listed`);
+  // console.log(`getCourses: ${courses.length} courses listed`);
   res.status(201).json({ courses: courses.map(course => course.toObject({ getters: true })) });
 };
 
 // add single course
 const addCourse = async (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    console.log(errors);
+    return next(new HttpError('courses-api: Invalid inputs passed, please check your data.', 422));
+  }
+
   const { course } = req.body;
   const creator = req.userData.userId;
 
@@ -255,36 +352,83 @@ const addCourse = async (req, res, next) => {
 
 // add multiple courses (from Excel file)
 const addCourses = async (req, res, next) => {
-  const { filePath } = req.body;
+  const filePath = req.file.path;
+  // console.log(`Input file is ${filePath}`);
   const creator = req.userData.userId;
 
+  let data;
   try {
     data = loadExcelData(filePath);
   } catch (err) {
     const message = err.message || 'courses-api: Load Excel file failed.';
     const code = err.code || 500;
     return next(new HttpError(message, code));
-    // return next(new HttpError('courses-api: Get course data failed, please try again later.', 500));
   }
+  console.log(`${data.length} courses retrieved from input file`);
 
-  data.map(async course => {
-    try {
-      await addCourseToDb(course);
-    } catch (err) {
+  // let newCourse;
+
+  let editedData = data.map(course => (
+    { ...course, notes: '', desc: '', provider: 'Udemy' }
+  ));
+
+  let newCourses = editedData.map(course => {
+    return addCourseToDb(course, creator);
+    // newCourse = await addCourseToDb(course, creator);
+  });
+
+  // console.log(`Promises array: ${newCourses}`);
+  const results = await Promise.all(newCourses)
+    // .then((values) => {
+    //   console.log('Promises completed');
+    // })
+    .then(() => {
+      // console.log('Returning');
+      res.status(201).json({ message: 'Courses added' });
+    }
+    )
+    .catch(err => {
       const message = err.message || 'courses-api: Add course failed, please try again later.';
       const code = err.code || 500;
       return next(new HttpError(message, code));
-    }
-  });
+    });
 
-  // get the new courses so they can be returned
-  try {
-    const newCourses = await Course.find({});
-    console.log(`${newCourses.length} courses added`);
-    res.status(200).json(newCourses);
-  } catch (err) {
-    return next(new HttpError('courses-api: List-after-add-courses failed, please try again later.', 500));
-  }
+  // data.map(async course => {
+  //   courseEdit = { ...course, notes: '', desc: '', provider: 'Udemy' };
+  //   try {
+  //     newCourse = await addCourseToDb(course, creator);
+  //     // ************************************************************************
+  //     // NOTE: unable to get this code to work, the find appears to fail with no
+  //     //       useful error info.
+  //     // 12/17/21
+  //     // ************************************************************************
+  //     // get the new courses so they can be returned
+  //     // try {
+  //     //   const newCourses = await Course.find({});
+  //     //   console.log(`${newCourses.length} courses added`);
+  //     //   // res.status(200).json(newCourses);
+  //     // }
+  //     // catch (err) {
+  //     //   const message = err.message || 'courses-api: List-after-add-courses failed, please try again later.';
+  //     //   const code = err.code || 500;
+  //     //   console.log("Error inner try");
+  //     //   console.log(err);
+  //     //   // return next(new HttpError(message, code));
+  //     //   // res.status(code).json({
+  //     //   //   message: message
+  //     //   // });
+  //     // }
+  //     // ************************************************************************
+  //   } catch (err) {
+  //     const message = err.message || 'courses-api: Add course failed, please try again later.';
+  //     const code = err.code || 500;
+  //     return next(new HttpError(message, code));
+  //     // res.status(code).json({
+  //     //   message: message
+  //     // });
+  //   }
+  // });
+  // res.status(201).json({ message: 'Courses added' });
 };
 
 // delete single course
@@ -300,7 +444,6 @@ const deleteCourse = async (req, res, next) => {
     const message = err.message || 'courses-api: Delete course failed, please try again later.';
     const code = err.code || 500;
     return next(new HttpError(message, code));
-    // return next(new HttpError('courses-api: Delete course failed, please try again later.', 500));
   }
 
   console.log(`Deleted "${title}"`);
