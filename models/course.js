@@ -16,7 +16,7 @@ const courseSchema = new Schema({
   dateBought: { type: Date, required: true },
   dateStarted: { type: Date, required: false },
   started: { type: Boolean, required: false },
-  dateCompleted: { type: Date, required: true },
+  dateCompleted: { type: Date, required: false },
   completed: { type: Boolean, required: false },
   description: { type: String, required: false },
   notes: { type: String, required: false },
