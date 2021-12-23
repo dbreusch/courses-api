@@ -10,20 +10,6 @@ const Course = require('../models/course');
 const User = require('../models/user');
 const user = require('../models/user');
 
-// // fake course data (to test addCourse)
-// const defaultCourse = {
-//   "n": "99",
-//   "Title": "A Course That Doesn't Exist",
-//   "Category": "DevOps",
-//   "Tools": "Kubernetes",
-//   "Hours": "12.3",
-//   "Sections": "11",
-//   "Lectures": "345",
-//   "Instructor": "Albert Einstein",
-//   "Bought": "2020-04-01T08:00:00.000Z",
-//   "Finished": "2021-10-31T07:00:00.000Z"
-// };
-
 // utility functions start here!
 
 // convert an Excel string date to a JS Date with error checking
@@ -39,6 +25,11 @@ const dateObject = inputDate => {
   } else {  // undefined, use a dummy value
     outputDate = new Date(1970, 0, 1);
   }
+
+  // clean up new date object
+  outputDate.setHours(0, 0, 0, 0);
+  outputDate.setTime(outputDate.getTime() - outputDate.getTimezoneOffset() * 60000);
+
   return outputDate;
 };
 
@@ -233,7 +224,6 @@ const addCourseToDb = async (course, creator) => {
   });
 };
 
-
 // delete a course from the database
 const deleteCourseFromDb = async (courseId, creator) => {
   let course;
@@ -309,7 +299,7 @@ const getCourse = async (req, res, next) => {
     return next(new HttpError('courses-api: Could not find course for provided id.', 404));
   }
 
-  console.log(`getCourse: "${course.title}"`);
+  // console.log(`getCourse: "${course.title}"`);
   res.status(201).json({ course });
 };
 
@@ -330,8 +320,16 @@ const getCourses = async (req, res, next) => {
 const addCourse = async (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    console.log(errors);
-    return next(new HttpError('courses-api: Invalid inputs passed, please check your data.', 422));
+    // console.log(Object.keys(errors));
+    // console.log(errors.errors[0].msg);
+    const msgs = errors.errors.map(e => {
+      console.log(e.msg);
+      return e.msg + ' ';
+    });
+    const message = `Input error: ${JSON.stringify(msgs)}`;
+    console.log(message);
+    const code = 422;
+    return next(new HttpError(message, code));
   }
 
   const { course } = req.body;
@@ -374,7 +372,6 @@ const addCourses = async (req, res, next) => {
 
   let newCourses = editedData.map(course => {
     return addCourseToDb(course, creator);
-    // newCourse = await addCourseToDb(course, creator);
   });
 
   // console.log(`Promises array: ${newCourses}`);
@@ -435,7 +432,6 @@ const addCourses = async (req, res, next) => {
 const deleteCourse = async (req, res, next) => {
   const courseId = req.params.cid;
   const creator = req.userData.userId;
-  // console.log(`deleteCourse creator = ${creator}`);
 
   let title = "";
   try {
@@ -465,7 +461,7 @@ const deleteCourses = async (req, res, next) => {
 
   courses.map(async course => {
     try {
-      await deleteCourseFromDb(course._id);
+      await deleteCourseFromDb(course._id, creator);
     } catch (err) {
       const message = err.message || 'courses-api: Delete course failed, please try again later.';
       const code = err.code || 500;
@@ -494,21 +490,45 @@ const updateCourse = async (req, res, next) => {
     return next(new HttpError('courses-api: Invalid inputs passed, please check your data.', 422));
   }
 
-  const { title, description, notes } = req.body;
+  // const { title, description, notes } = req.body;
+  const { update } = req.body;
 
   let course;
   try {
-    course = await Course.findById(courseId);
+    course = await Course.findById(courseId).populate('creator');
   }
   catch (err) {
     return next(new HttpError('courses-api: Something went wrong, could not update course!', 500));
   }
 
-  course.title = title;
-  course.description = description;
-  course.notes = notes;
-  const currDate = new Date();
-  course.dateUpdated = currDate;
+  if (!course) {
+    createAndThrowError('coursesdb-api: Could not find course for provided id.', 404);
+  }
+
+  let originalCreator = null;
+  if (course.creator && course.creator.id) {
+    originalCreator = course.creator.id;
+  } else {
+    console.log('updateCourse: creator.id not populated correctly');
+    createAndThrowError('coursesdb-api: Invalid creator id.', 404);
+  }
+
+  if (creator && creator !== originalCreator) {
+    console.log('updateCourse: creator mismatch');
+    createAndThrowError('coursesdb-api: Not the owner of this course, cannot be updated.', 403);
+  }
+
+  const validFields = Object.keys(Course.schema.obj);
+  const updateKeys = Object.keys(update);
+  updateKeys.forEach((key, index) => {
+    if (validFields.includes(key)) {
+      console.log(`Updating key "${key}": ${update[key]}`);
+      course[key] = update[key];
+    } else {
+      console.log(`Key ${key} not found in database!`);
+    }
+  });
+  course.dateUpdated = new Date();
 
   try {
     await course.save();
