@@ -1,6 +1,6 @@
 // coursesdb-routes: define app routes
 const express = require('express');
-// const { check } = require('express-validator');
+const { check } = require('express-validator');
 
 const coursesdbControllers = require('../controllers/coursesdb-controllers');
 
@@ -24,6 +24,35 @@ router.use(checkAuth);
 // add a single course
 router.post(
   '/addCourse',
+  [
+    check('course.n')
+      .isInt({ min: 1 })
+      .withMessage('Purchase sequence must be integer and > 0'),
+    check('course.Title')
+      .isLength({ min: 5 })
+      .withMessage('Title must be at least 5 characters'),
+    check('course.Category')
+      .not()
+      .isEmpty(),
+    check('course.Tools')
+      .not()
+      .isEmpty(),
+    check('course.Hours')
+    .isFloat({ gt: 0 })
+      .withMessage('# of hours must be numeric and > 0'),
+    check('course.Sections')
+      .isInt({ min: 1 })
+      .withMessage('# of sections must be integer and > 0'),
+    check('course.Lectures')
+      .isInt({ min: 1 })
+      .withMessage('# of lectures must be integer and > 0'),
+    check('course.Instructor')
+      .isLength({ min: 3 })
+      .withMessage('Instructor must be at least 3 characters'),
+    check('course.Bought')
+      .not()
+      .isEmpty(),
+  ],
   coursesdbControllers.addCourse
 );
 
