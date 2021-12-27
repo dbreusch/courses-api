@@ -9,6 +9,7 @@ const HttpError = require('../models/http-error');
 const Course = require('../models/course');
 const User = require('../models/user');
 const user = require('../models/user');
+const e = require('express');
 
 // utility functions start here!
 
@@ -522,7 +523,11 @@ const updateCourse = async (req, res, next) => {
   const updateKeys = Object.keys(update);
   updateKeys.forEach((key, index) => {
     if (validFields.includes(key)) {
-      console.log(`Updating key "${key}": ${update[key]}`);
+      if (key === "description" || key === "notes") {
+        console.log(`Updating key "${key}": ${update[key].slice(0, 24) + "..."}`);
+      } else {
+        console.log(`Updating key "${key}": ${update[key]}`);
+      }
       course[key] = update[key];
     } else {
       console.log(`Key ${key} not found in database!`);
