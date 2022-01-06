@@ -2,7 +2,7 @@
 // validation is done by auth-api
 const axios = require('axios');
 
-const HttpError = require('../models/http-error');
+const HttpError = require('../helpers/http-error');
 const { getEnvVar } = require('../helpers/getEnvVar');
 
 module.exports = async (req, res, next) => {

@@ -3,15 +3,62 @@ const xlsx = require('xlsx');
 const { validationResult } = require('express-validator');
 const mongoose = require('mongoose');
 
-const { createAndThrowError, createError } = require('../helpers/error');
+const { createAndThrowError } = require('../helpers/error');
+const HttpError = require('../helpers/http-error');
 // const { getEnvVar } = require('../helpers/getEnvVar');
-const HttpError = require('../models/http-error');
 const Course = require('../models/course');
 const User = require('../models/user');
-const user = require('../models/user');
-const e = require('express');
 
+// ****************************************************************************************************
 // utility functions start here!
+// ****************************************************************************************************
+
+// handle all defined app errors here
+const handleError = ({ message, code, err, errFn = 'HttpError' }) => {
+  console.log(`${message}, ${code}`);
+  if (err) {
+    console.log(err);
+  }
+  switch (errFn) {
+    case 'createAndThrowError':
+      createAndThrowError(message, code);
+      break;
+    case 'reject':
+      return reject({ message: message, code: code });
+    case 'HttpError':
+      return next(new HttpError(message, code));
+    default:
+      console.log(`Error function ${errFn} not recognized!`);
+      createAndThrowError(message, code);
+  }
+};
+
+// wrapper for internal function errors
+// const handleStandardError = (message, code, err) => {
+//   console.log(`${message}, ${code}`);
+//   if (err) {
+//     console.log(err);
+//   }
+//   createAndThrowError(message, code);
+// };
+
+// wrapper for promise reject errors
+// const handlePromiseReject = (reject, message, code, err) => {
+//   console.log(`${message}, ${code}`);
+//   if (err) {
+//     console.log(err);
+//   }
+//   return reject({ message: message, code: code });
+// };
+
+// wrapper for HTTP errors
+// const handleHttpError = (next, message, code, err) => {
+//   console.log(`${message}, ${code}`);
+//   if (err) {
+//     console.log(err);
+//   }
+//   return next(new HttpError(message, code));
+// };
 
 // convert an Excel string date to a JS Date with error checking
 const dateObject = inputDate => {
@@ -36,24 +83,25 @@ const dateObject = inputDate => {
 
 // load data from an Excel spreadsheet
 const loadExcelData = filePath => {
-  let workbook, sheetNames, data;
+  let workbook, sheetNames, data, message;
+  const code = 500;
 
   // read file
   try {
     workbook = xlsx.readFile(filePath, { cellDates: true });
   } catch (err) {
-    console.log('loadExcelData: readfile failure');
-    console.log(err);
-    createAndThrowError('coursesdb-api: Could not load Excel file!', 500);
+    message = `loadExcelData: failure, unable to read ${filePath}`;
+    // handleStandardError(message, code, err);
+    handleError({ message, code, err, errFn: 'createAndThrowError' });
   }
 
   // get sheet names
   try {
     sheetNames = workbook.SheetNames;
   } catch (err) {
-    console.log('loadExcelData: sheetnames failure');
-    console.log(err);
-    createAndThrowError('coursesdb-api: Could not load Excel file!', 500);
+    message = `loadExcelData: failure, unable to retrieve sheetnames from ${filePath}`;
+    // handleStandardError(message, code, err);
+    handleError({ message, code, err, errFn: 'createAndThrowError' });
   }
 
   // convert Excel format to JSON
@@ -62,17 +110,17 @@ const loadExcelData = filePath => {
       workbook.Sheets[sheetNames[0]]
     );
     return data;
-  } catch {
-    console.log('loadExcelData: sheet_to_json failure');
-    console.log(err);
-    createAndThrowError('coursesdb-api: Could not convert spreadsheet!', 500);
+  } catch (err) {
+    message = `loadExcelData: failure, unable to convert spreadsheet ${filePath} to JSON`;
+    // handleStandardError(message, code, err);
+    handleError({ message, code, err, errFn: 'createAndThrowError' });
   }
 };
 
 // add a course to the database
 const addCourseToDb = async (course, creator) => {
   return new Promise(async (resolve, reject) => {
-
+    let message, code;
     const startedDate = dateObject(null); // assumed to be unknown
     let wasStarted = false;
     let wasCompleted = false;
@@ -87,18 +135,23 @@ const addCourseToDb = async (course, creator) => {
         {
           $and: [
             { title: title },
-            { instructor: instructor }
+            { instructor: instructor },
+            { creator: creator }
           ]
         }
-      );
+      ).populate('creator');
     } catch (err) {
-      console.log('coursesdb-api: Error checking for existing course');
-      reject(createAndThrowError('coursesdb-api: Adding course failed, please try again later.', 500));
+      message = 'coursesdb-api: Error with database while checking for existing course, please try again later.';
+      code = 500;
+      // return handlePromiseReject(reject, message, code, err);
+      return handleError({ message, code, err, errFn: 'reject' });
     }
     if (existingCourse) {
-      console.log('coursesdb-api: Existing course found');
-      reject(createAndThrowError('coursesdb-api: Course exists already, please use edit instead.', 422));
-    }
+      message = `coursesdb-api: Course "${title}" exists already, please use edit instead`;
+      code = 400;
+      // return handlePromiseReject(reject, message, code);
+      return handleError({ message, code, err, errFn: 'reject' });
+    };
 
     // compute dates and boolean status vars
     const completedDate = dateObject(course.Finished);
@@ -112,41 +165,55 @@ const addCourseToDb = async (course, creator) => {
     // Note: that the purchaseSequence field being referred to as "n" is an artifact
     // of support for loading courses from an Excel spreadsheet, where this is the
     // column title
-    const newCourse = new Course({
-      purchaseSequence: course.n,
-      title: title,
-      category: course.Category,
-      tools: course.Tools.replace(/[\n\r]+/g, ' '),
-      hours: course.Hours,
-      sections: course.Sections,
-      lectures: course.Lectures,
-      instructor: instructor,
-      dateBought: dateObject(course.Bought),
-      dateStarted: startedDate,
-      started: wasStarted,
-      dateCompleted: completedDate,
-      completed: wasCompleted,
-      description: course.desc,
-      notes: course.notes,
-      creator: creator,
-      provider: course.provider,
-      dateAdded: currDate,
-      dateUpdated: currDate
-    });
+    let newCourse;
+    try {
+      newCourse = new Course({
+        purchaseSequence: course.n,
+        title: title,
+        category: course.Category,
+        tools: course.Tools.replace(/[\n\r]+/g, ' '),
+        hours: course.Hours,
+        sections: course.Sections,
+        lectures: course.Lectures,
+        instructor: instructor,
+        dateBought: dateObject(course.Bought),
+        dateStarted: startedDate,
+        started: wasStarted,
+        dateCompleted: completedDate,
+        completed: wasCompleted,
+        description: course.desc,
+        notes: course.notes,
+        creator: creator,
+        provider: course.provider,
+        dateAdded: currDate,
+        dateUpdated: currDate
+      });
+    } catch (err) {
+      message = 'coursesdb-api: Error creating new Course instance.';
+      code = 500;
+      // return handlePromiseReject(reject, message, code, err);
+      return handleError({ message, code, err, errFn: 'reject' });
+    }
 
     // look for User in the database
     let user;
     try {
       user = await User.findById(creator);
     } catch (err) {
-      reject(createAndThrowError('coursesdb-api: Creating course failed, please try again.', 500));
+      message = 'coursesdb-api: Database error looking for creating user, please try again.';
+      code = 500;
+      // return handlePromiseReject(reject, message, code, err);
+      return handleError({ message, code, err, errFn: 'reject' });
     }
 
     if (!user) {
-      reject(createAndThrowError('coursesdb-api: Could not find user for provided id.', 404));
+      message = 'coursesdb-api: Database error, could not find user for provided id.';
+      code = 400;
+      // return handlePromiseReject(reject, message, code);
+      return handleError({ message, code, err, errFn: 'reject' });
     }
 
-    // link the COURSE to the USER (mongoose automatically adds just the place id)
+    // link the COURSE to the USER (mongoose automatically adds just the course id)
     user.courses.push(newCourse);
 
     // ************************************************************************
@@ -168,8 +235,6 @@ const addCourseToDb = async (course, creator) => {
       resolve(newCourse);
     }
     );
-
-    // resolve(newCourse);
 
     // ************************************************************************
     // NOTE: would prefer to use the more robust session/transaction-based code
@@ -227,29 +292,40 @@ const addCourseToDb = async (course, creator) => {
 
 // delete a course from the database
 const deleteCourseFromDb = async (courseId, creator) => {
+  let message, code;
   let course;
   try {
     course = await Course.findById(courseId).populate('creator');
   }
   catch (err) {
-    createAndThrowError('coursesdb-api: Something went wrong in findById, could not delete course!', 500);
+    message = 'coursesdb-api: Something went wrong in findById, could not delete course!';
+    code = 500;
+    // handleStandardError(message, code, err);
+    handleError({ message, code, err, errFn: 'createAndThrowError' });
   }
 
   if (!course) {
-    createAndThrowError('coursesdb-api: Could not find course for provided id.', 404);
+    message = 'coursesdb-api: Could not find course for provided id.';
+    code = 404;
+    // handleStandardError(message, code);
+    handleError({ message, code, err, errFn: 'createAndThrowError' });
   }
 
   let originalCreator = null;
   if (course.creator && course.creator.id) {
     originalCreator = course.creator.id;
   } else {
-    console.log('deleteCourseFromDb: creator.id not populated correctly');
-    createAndThrowError('coursesdb-api: Invalid creator id.', 404);
+    message = 'deleteCourseFromDb: creator.id not populated correctly.';
+    code = 404;
+    // handleStandardError(message, code);
+    handleError({ message, code, err, errFn: 'createAndThrowError' });
   }
 
   if (creator && creator !== originalCreator) {
-    console.log('deleteCourseFromDb creator mismatch');
-    createAndThrowError('coursesdb-api: Not the owner of this course, cannot be deleted.', 403);
+    message = 'deleteCourseFromDb: Not the owner of this course, cannot be deleted.';
+    code = 403;
+    // handleStandardError(message, code);
+    handleError({ message, code, err, errFn: 'createAndThrowError' });
   }
 
   const title = course.title;
@@ -257,7 +333,10 @@ const deleteCourseFromDb = async (courseId, creator) => {
     // delete course
     await course.remove();
   } catch (err) {
-    createAndThrowError('coursesdb-api: Something went wrong in remove, could not delete course!', 500);
+    message = 'deleteCourseFromDb: Something went wrong in remove, could not delete course!';
+    code = 500;
+    // handleStandardError(message, code, err);
+    handleError({ message, code, err, errFn: 'createAndThrowError' });
   }
 
   // look for User in the database
@@ -265,39 +344,57 @@ const deleteCourseFromDb = async (courseId, creator) => {
   try {
     user = await User.findById(creator);
   } catch (err) {
-    reject(createAndThrowError('coursesdb-api: Delete course failed, user not found.', 500));
+    message = 'deleteCourseFromDb: Delete course failed, user not found.';
+    code = 500;
+    // handleStandardError(message, code, err);
+    handleError({ message, code, err, errFn: 'createAndThrowError' });
   }
 
   if (!user) {
-    reject(createAndThrowError('coursesdb-api: Could not find user for provided id.', 404));
+    message = 'deleteCourseFromDb: Could not find user for provided id.';
+    code = 404;
+    // handleStandardError(message, code);
+    handleError({ message, code, err, errFn: 'createAndThrowError' });
   }
   try {
     // remove the COURSE from the USER
     user.courses.pull(course);
     await user.save();
   } catch (err) {
-    createAndThrowError('coursesdb-api: Something went wrong in remove, could not delete user!', 500);
+    message = 'deleteCourseFromDb: Something went wrong in remove, could not delete user!';
+    code = 500;
+    // handleStandardError(message, code, err);
+    handleError({ message, code, err, errFn: 'createAndThrowError' });
   }
 
   return title;
 };
 
+// ****************************************************************************************************
 // exported functions start here!
+// ****************************************************************************************************
 
 // return a single course
 const getCourse = async (req, res, next) => {
   const courseId = req.params.cid;
+  let message, code;
 
   let course;
   try {
     course = await Course.findById(courseId);
   }
   catch (err) {
-    return next(new HttpError('courses-api: Something went wrong in findById, could not delete course!', 500));
+    message = 'courses-api: Something went wrong in findById, could not delete course!';
+    code = 500;
+    // return next(new HttpError('courses-api: Something went wrong in findById, could not delete course!', 500));
+    return handleError({ message, code, err });
   }
 
   if (!course) {
-    return next(new HttpError('courses-api: Could not find course for provided id.', 404));
+    message = 'courses-api: Could not find course for provided id.';
+    code = 404;
+    // return next(new HttpError('courses-api: Could not find course for provided id.', 404));
+    return handleError({ message, code });
   }
 
   // console.log(`getCourse: "${course.title}"`);
@@ -306,11 +403,15 @@ const getCourse = async (req, res, next) => {
 
 // return all courses
 const getCourses = async (req, res, next) => {
+  let message, code;
   let courses;
   try {
     courses = await Course.find({});
   } catch (err) {
-    return next(new HttpError('courses-api: Fetching courses failed, please try again later.', 500));
+    message = 'courses-api: Fetching courses failed, please try again later.';
+    code = 500;
+    // return next(new HttpError('courses-api: Fetching courses failed, please try again later.', 500));
+    return handleError({ message, code, err });
   }
 
   // console.log(`getCourses: ${courses.length} courses listed`);
@@ -319,18 +420,17 @@ const getCourses = async (req, res, next) => {
 
 // add single course
 const addCourse = async (req, res, next) => {
+  let message, code;
+
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    // console.log(Object.keys(errors));
-    // console.log(errors.errors[0].msg);
     const msgs = errors.errors.map(e => {
-      console.log(e.msg);
       return e.msg + ' ';
     });
-    const message = `Input error: ${JSON.stringify(msgs)}`;
-    console.log(message);
-    const code = 422;
-    return next(new HttpError(message, code));
+    message = `Input error: ${JSON.stringify(msgs)}`;
+    code = 422;
+    // return next(new HttpError(message, code));
+    return handleError({ message, code });
   }
 
   const { course } = req.body;
@@ -340,9 +440,10 @@ const addCourse = async (req, res, next) => {
   try {
     newCourse = await addCourseToDb(course, creator, next);
   } catch (err) {
-    const message = err.message || 'courses-api: Add course failed, please try again later.';
-    const code = err.code || 500;
-    return next(new HttpError(message, code));
+    message = err.message || 'courses-api: Add course failed, please try again later.';
+    code = err.code || 500;
+    // return next(new HttpError(message, code));
+    return handleError({ message, code, err });
   }
 
   console.log(`Added course "${newCourse.title}"`);
@@ -351,6 +452,7 @@ const addCourse = async (req, res, next) => {
 
 // add multiple courses (from Excel file)
 const addCourses = async (req, res, next) => {
+  let message, code;
   const filePath = req.file.path;
   // console.log(`Input file is ${filePath}`);
   const creator = req.userData.userId;
@@ -359,38 +461,34 @@ const addCourses = async (req, res, next) => {
   try {
     data = loadExcelData(filePath);
   } catch (err) {
-    const message = err.message || 'courses-api: Load Excel file failed.';
-    const code = err.code || 500;
-    return next(new HttpError(message, code));
+    message = err.message || 'courses-api: Load Excel file failed.';
+    code = err.code || 500;
+    // return next(new HttpError(message, code));
+    return handleError({ message, code, err });
   }
   console.log(`${data.length} courses retrieved from input file`);
-
-  // let newCourse;
 
   let editedData = data.map(course => (
     { ...course, notes: '', desc: '', provider: 'Udemy' }
   ));
 
-  let newCourses = editedData.map(course => {
+  let addCoursePromises = editedData.map(course => {
     return addCourseToDb(course, creator);
   });
 
-  // console.log(`Promises array: ${newCourses}`);
-  const results = await Promise.all(newCourses)
-    // .then((values) => {
-    //   console.log('Promises completed');
-    // })
+  // console.log(`Promises array: ${addCoursePromises}`);
+  const results = await Promise.all(addCoursePromises)
     .then(() => {
-      // console.log('Returning');
       res.status(201).json({ message: 'Courses added' });
     }
     )
     .catch(err => {
-      const message = err.message || 'courses-api: Add course failed, please try again later.';
-      const code = err.code || 500;
-      return next(new HttpError(message, code));
+      message = err.message || 'courses-api: Add course failed, please try again later.';
+      code = err.code || 500;
+      res.status(code).json({ message: message });
     });
 
+  // let newCourse;
   // data.map(async course => {
   //   courseEdit = { ...course, notes: '', desc: '', provider: 'Udemy' };
   //   try {
@@ -402,9 +500,9 @@ const addCourses = async (req, res, next) => {
   //     // ************************************************************************
   //     // get the new courses so they can be returned
   //     // try {
-  //     //   const newCourses = await Course.find({});
-  //     //   console.log(`${newCourses.length} courses added`);
-  //     //   // res.status(200).json(newCourses);
+  //     //   const addCoursePromises = await Course.find({});
+  //     //   console.log(`${addCoursePromises.length} courses added`);
+  //     //   // res.status(200).json(addCoursePromises);
   //     // }
   //     // catch (err) {
   //     //   const message = err.message || 'courses-api: List-after-add-courses failed, please try again later.';
@@ -431,6 +529,7 @@ const addCourses = async (req, res, next) => {
 
 // delete single course
 const deleteCourse = async (req, res, next) => {
+  let message, code;
   const courseId = req.params.cid;
   const creator = req.userData.userId;
 
@@ -438,9 +537,10 @@ const deleteCourse = async (req, res, next) => {
   try {
     title = await deleteCourseFromDb(courseId, creator);
   } catch (err) {
-    const message = err.message || 'courses-api: Delete course failed, please try again later.';
-    const code = err.code || 500;
-    return next(new HttpError(message, code));
+    message = err.message || 'courses-api: Delete course failed, please try again later.';
+    code = err.code || 500;
+    // return next(new HttpError(message, code));
+    return handleError({ message, code, err });
   }
 
   console.log(`Deleted "${title}"`);
@@ -451,23 +551,27 @@ const deleteCourse = async (req, res, next) => {
 
 // delete all courses
 const deleteCourses = async (req, res, next) => {
+  let message, code;
   const creator = req.userData.userId;
   let courses;
 
   try {
     courses = await Course.find({});
   } catch (err) {
-    return next(new HttpError('courses-api: Fetching courses failed, please try again later.', 500));
+    message = 'courses-api: Fetching courses failed, please try again later.';
+    code = 500;
+    // return next(new HttpError('courses-api: Fetching courses failed, please try again later.', 500));
+    return handleError({ message, code, err });
   }
 
   courses.map(async course => {
     try {
       await deleteCourseFromDb(course._id, creator);
     } catch (err) {
-      const message = err.message || 'courses-api: Delete course failed, please try again later.';
-      const code = err.code || 500;
-      return next(new HttpError(message, code));
-      // return next(new HttpError('courses-api: Delete course failed, please try again later.', 500));
+      message = err.message || 'courses-api: Delete course failed, please try again later.';
+      code = err.code || 500;
+      // return next(new HttpError(message, code));
+      return handleError({ message, code, err });
     }
   }
   );
@@ -479,19 +583,21 @@ const deleteCourses = async (req, res, next) => {
 };
 
 // update single course (PATCH)
-// starting with most common fields
-// to do ALL of them will require some more complex coding
+// fields are handled dynamically
 const updateCourse = async (req, res, next) => {
+  let message, code;
   const courseId = req.params.cid;
   const creator = req.userData.userId;
 
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     console.log(errors);
-    return next(new HttpError('courses-api: Invalid inputs passed, please check your data.', 422));
+    message = 'coursesdb-api: updateCourse: Invalid inputs passed, please check your data.';
+    code = 422;
+    // return next(new HttpError('coursesdb-api: updateCourse: Invalid inputs passed, please check your data.', 422));
+    return handleError({ message, code });
   }
 
-  // const { title, description, notes } = req.body;
   const { update } = req.body;
 
   let course;
@@ -499,24 +605,36 @@ const updateCourse = async (req, res, next) => {
     course = await Course.findById(courseId).populate('creator');
   }
   catch (err) {
-    return next(new HttpError('courses-api: Something went wrong, could not update course!', 500));
+    message = 'coursesdb-api: updateCourse: Something went wrong, could not update course!';
+    code = 500;
+    // return next(new HttpError('coursesdb-api: updateCourse: Something went wrong, could not update course!', 500));
+    return handleError({ message, code, err });
   }
 
   if (!course) {
-    createAndThrowError('coursesdb-api: Could not find course for provided id.', 404);
+    message = 'coursesdb-api: updateCourse: Could not find course for provided id!';
+    code = 404;
+    // return next(new HttpError('coursesdb-api: updateCourse: Could not find course for provided id!', 404));
+    return handleError({ message, code });
   }
 
   let originalCreator = null;
   if (course.creator && course.creator.id) {
     originalCreator = course.creator.id;
   } else {
-    console.log('updateCourse: creator.id not populated correctly');
-    createAndThrowError('coursesdb-api: Invalid creator id.', 404);
+    console.log('coursesdb-api: updateCourse: creator.id not populated correctly');
+    message = 'coursesdb-api: updateCourse: Invalid creator id.';
+    code = 404;
+    // return next(new HttpError('coursesdb-api: updateCourse: Invalid creator id.', 404));
+    return handleError({ message, code });
   }
 
   if (creator && creator !== originalCreator) {
-    console.log('updateCourse: creator mismatch');
-    createAndThrowError('coursesdb-api: Not the owner of this course, cannot be updated.', 403);
+    console.log('coursesdb-api: updateCourse: creator mismatch');
+    message = 'coursesdb-api: updateCourse: Not the owner of this course, cannot be updated.';
+    code = 403;
+    // return next(new HttpError('coursesdb-api: updateCourse: Not the owner of this course, cannot be updated.', 403));
+    return handleError({ message, code });
   }
 
   const validFields = Object.keys(Course.schema.obj);
@@ -524,13 +642,13 @@ const updateCourse = async (req, res, next) => {
   updateKeys.forEach((key, index) => {
     if (validFields.includes(key)) {
       if (key === "description" || key === "notes") {
-        console.log(`Updating key "${key}": ${update[key].slice(0, 24) + "..."}`);
+        console.log(`updateCourse: Updating key "${key}": ${update[key].slice(0, 24) + "..."}`);
       } else {
-        console.log(`Updating key "${key}": ${update[key]}`);
+        console.log(`updateCourse: Updating key "${key}": ${update[key]}`);
       }
       course[key] = update[key];
     } else {
-      console.log(`Key ${key} not found in database!`);
+      console.log(`updateCourse: Key ${key} not found in database!`);
     }
   });
   course.dateUpdated = new Date();
@@ -538,10 +656,13 @@ const updateCourse = async (req, res, next) => {
   try {
     await course.save();
   } catch (err) {
-    return next(new HttpError('courses-api: Something went wrong, could not update place!', 500));
+    message = 'coursesdb-api: updateCourse: Something went wrong, could not update course!';
+    code = 500;
+    // return next(new HttpError('coursesdb-api: updateCourse: Something went wrong, could not update course!', 500));
+    return handleError({ message, code, err });
   }
 
-  console.log(`Course "${course.title}" updated`);
+  console.log(`updateCourse: Course "${course.title}" updated`);
   res.status(200).json({ course: course.toObject({ getters: true }) });
 };
 

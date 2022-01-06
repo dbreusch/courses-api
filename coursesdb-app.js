@@ -8,7 +8,7 @@ const session = require('express-session');
 const MemoryStore = require('memorystore')(session);
 const dotenv = require('dotenv');
 
-const HttpError = require('./models/http-error');
+const HttpError = require('./helpers/http-error');
 const coursesdbRoutes = require('./routes/coursesdb-routes');
 const { getEnvVar } = require('./helpers/getEnvVar');
 
