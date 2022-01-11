@@ -33,7 +33,8 @@ module.exports = async (req, res, next) => {
       }
     );
     req.userData = {
-      userId: decodedToken.data.uid
+      userId: decodedToken.data.uid,
+      isAdmin: decodedToken.data.isAdmin
     };
     next();
   } catch (err) {

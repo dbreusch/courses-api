@@ -591,6 +591,7 @@ const updateCourse = async (req, res, next) => {
   let message, code;
   const courseId = req.params.cid;
   const creator = req.userData.userId;
+  const isAdmin = req.userData.isAdmin;
 
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -633,11 +634,13 @@ const updateCourse = async (req, res, next) => {
   }
 
   if (creator && creator !== originalCreator) {
-    console.log('coursesdb-api: updateCourse: creator mismatch');
-    message = 'coursesdb-api: updateCourse: Not the owner of this course, cannot be updated.';
-    code = 403;
-    // return next(new HttpError('coursesdb-api: updateCourse: Not the owner of this course, cannot be updated.', 403));
-    return handleError({ message, code, errFn: next });
+    if (!isAdmin) {
+      console.log('coursesdb-api: updateCourse: creator mismatch');
+      message = 'coursesdb-api: updateCourse: Not the owner of this course, cannot be updated.';
+      code = 403;
+      // return next(new HttpError('coursesdb-api: updateCourse: Not the owner of this course, cannot be updated.', 403));
+      return handleError({ message, code, errFn: next });
+    }
   }
 
   const validFields = Object.keys(Course.schema.obj);
