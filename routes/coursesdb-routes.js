@@ -12,11 +12,23 @@ const router = express.Router();
 
 // define available routes
 
+// return course metadata
+router.get(
+  '/getMetadata',
+  coursesdbControllers.getMetadata
+);
+
 // return a single course
-router.get('/:cid', coursesdbControllers.getCourse);
+router.get(
+  '/:cid',
+  coursesdbControllers.getCourse
+);
 
 // return a list of courses
-router.get('/', coursesdbControllers.getCourses);
+router.get(
+  '/',
+  coursesdbControllers.getCourses
+);
 
 // add middleware to make sure subsequent requests have a valid token
 router.use(checkAuth);
@@ -38,7 +50,7 @@ router.post(
       .not()
       .isEmpty(),
     check('course.Hours')
-    .isFloat({ gt: 0 })
+      .isFloat({ gt: 0 })
       .withMessage('# of hours must be numeric and > 0'),
     check('course.Sections')
       .isInt({ min: 1 })

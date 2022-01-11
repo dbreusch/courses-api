@@ -8,27 +8,29 @@ const HttpError = require('../helpers/http-error');
 // const { getEnvVar } = require('../helpers/getEnvVar');
 const Course = require('../models/course');
 const User = require('../models/user');
+const { formMetaData } = require('../models/formMetaData');
+const res = require('express/lib/response');
 
-// ****************************************************************************************************
+// **********************************************************************************************
 // utility functions start here!
-// ****************************************************************************************************
+// **********************************************************************************************
 
 // handle all defined app errors here
-const handleError = ({ message, code, err, errFn = 'HttpError' }) => {
+const handleError = ({ message, code, err, errType = 'HttpError', errFn }) => {
   console.log(`${message}, ${code}`);
   if (err) {
     console.log(err);
   }
-  switch (errFn) {
+  switch (errType) {
     case 'createAndThrowError':
       createAndThrowError(message, code);
       break;
     case 'reject':
-      return reject({ message: message, code: code });
+      return errFn({ message: message, code: code });
     case 'HttpError':
-      return next(new HttpError(message, code));
+      return errFn(new HttpError(message, code));
     default:
-      console.log(`Error function ${errFn} not recognized!`);
+      console.log(`Error function ${errType} not recognized!`);
       createAndThrowError(message, code);
   }
 };
@@ -92,7 +94,7 @@ const loadExcelData = filePath => {
   } catch (err) {
     message = `loadExcelData: failure, unable to read ${filePath}`;
     // handleStandardError(message, code, err);
-    handleError({ message, code, err, errFn: 'createAndThrowError' });
+    handleError({ message, code, err, errType: 'createAndThrowError' });
   }
 
   // get sheet names
@@ -101,7 +103,7 @@ const loadExcelData = filePath => {
   } catch (err) {
     message = `loadExcelData: failure, unable to retrieve sheetnames from ${filePath}`;
     // handleStandardError(message, code, err);
-    handleError({ message, code, err, errFn: 'createAndThrowError' });
+    handleError({ message, code, err, errType: 'createAndThrowError' });
   }
 
   // convert Excel format to JSON
@@ -113,7 +115,7 @@ const loadExcelData = filePath => {
   } catch (err) {
     message = `loadExcelData: failure, unable to convert spreadsheet ${filePath} to JSON`;
     // handleStandardError(message, code, err);
-    handleError({ message, code, err, errFn: 'createAndThrowError' });
+    handleError({ message, code, err, errType: 'createAndThrowError' });
   }
 };
 
@@ -144,13 +146,13 @@ const addCourseToDb = async (course, creator) => {
       message = 'coursesdb-api: Error with database while checking for existing course, please try again later.';
       code = 500;
       // return handlePromiseReject(reject, message, code, err);
-      return handleError({ message, code, err, errFn: 'reject' });
+      return handleError({ message, code, err, errType: 'reject' });
     }
     if (existingCourse) {
       message = `coursesdb-api: Course "${title}" exists already, please use edit instead`;
       code = 400;
       // return handlePromiseReject(reject, message, code);
-      return handleError({ message, code, err, errFn: 'reject' });
+      return handleError({ message, code, err, errType: 'reject', errFn: reject });
     };
 
     // compute dates and boolean status vars
@@ -192,7 +194,7 @@ const addCourseToDb = async (course, creator) => {
       message = 'coursesdb-api: Error creating new Course instance.';
       code = 500;
       // return handlePromiseReject(reject, message, code, err);
-      return handleError({ message, code, err, errFn: 'reject' });
+      return handleError({ message, code, err, errType: 'reject', errFn: reject });
     }
 
     // look for User in the database
@@ -203,14 +205,14 @@ const addCourseToDb = async (course, creator) => {
       message = 'coursesdb-api: Database error looking for creating user, please try again.';
       code = 500;
       // return handlePromiseReject(reject, message, code, err);
-      return handleError({ message, code, err, errFn: 'reject' });
+      return handleError({ message, code, err, errType: 'reject', errFn: reject });
     }
 
     if (!user) {
       message = 'coursesdb-api: Database error, could not find user for provided id.';
       code = 400;
       // return handlePromiseReject(reject, message, code);
-      return handleError({ message, code, err, errFn: 'reject' });
+      return handleError({ message, code, err, errType: 'reject', errFn: reject });
     }
 
     // link the COURSE to the USER (mongoose automatically adds just the course id)
@@ -301,14 +303,14 @@ const deleteCourseFromDb = async (courseId, creator) => {
     message = 'coursesdb-api: Something went wrong in findById, could not delete course!';
     code = 500;
     // handleStandardError(message, code, err);
-    handleError({ message, code, err, errFn: 'createAndThrowError' });
+    handleError({ message, code, err, errType: 'createAndThrowError' });
   }
 
   if (!course) {
     message = 'coursesdb-api: Could not find course for provided id.';
     code = 404;
     // handleStandardError(message, code);
-    handleError({ message, code, err, errFn: 'createAndThrowError' });
+    handleError({ message, code, err, errType: 'createAndThrowError' });
   }
 
   let originalCreator = null;
@@ -318,14 +320,14 @@ const deleteCourseFromDb = async (courseId, creator) => {
     message = 'deleteCourseFromDb: creator.id not populated correctly.';
     code = 404;
     // handleStandardError(message, code);
-    handleError({ message, code, err, errFn: 'createAndThrowError' });
+    handleError({ message, code, err, errType: 'createAndThrowError' });
   }
 
   if (creator && creator !== originalCreator) {
     message = 'deleteCourseFromDb: Not the owner of this course, cannot be deleted.';
     code = 403;
     // handleStandardError(message, code);
-    handleError({ message, code, err, errFn: 'createAndThrowError' });
+    handleError({ message, code, err, errType: 'createAndThrowError' });
   }
 
   const title = course.title;
@@ -336,7 +338,7 @@ const deleteCourseFromDb = async (courseId, creator) => {
     message = 'deleteCourseFromDb: Something went wrong in remove, could not delete course!';
     code = 500;
     // handleStandardError(message, code, err);
-    handleError({ message, code, err, errFn: 'createAndThrowError' });
+    handleError({ message, code, err, errType: 'createAndThrowError' });
   }
 
   // look for User in the database
@@ -347,14 +349,14 @@ const deleteCourseFromDb = async (courseId, creator) => {
     message = 'deleteCourseFromDb: Delete course failed, user not found.';
     code = 500;
     // handleStandardError(message, code, err);
-    handleError({ message, code, err, errFn: 'createAndThrowError' });
+    handleError({ message, code, err, errType: 'createAndThrowError' });
   }
 
   if (!user) {
     message = 'deleteCourseFromDb: Could not find user for provided id.';
     code = 404;
     // handleStandardError(message, code);
-    handleError({ message, code, err, errFn: 'createAndThrowError' });
+    handleError({ message, code, err, errType: 'createAndThrowError' });
   }
   try {
     // remove the COURSE from the USER
@@ -364,15 +366,16 @@ const deleteCourseFromDb = async (courseId, creator) => {
     message = 'deleteCourseFromDb: Something went wrong in remove, could not delete user!';
     code = 500;
     // handleStandardError(message, code, err);
-    handleError({ message, code, err, errFn: 'createAndThrowError' });
+    handleError({ message, code, err, errType: 'createAndThrowError' });
   }
 
   return title;
 };
 
-// ****************************************************************************************************
+// **********************************************************************************************
+//
 // exported functions start here!
-// ****************************************************************************************************
+// **********************************************************************************************
 
 // return a single course
 const getCourse = async (req, res, next) => {
@@ -384,17 +387,17 @@ const getCourse = async (req, res, next) => {
     course = await Course.findById(courseId);
   }
   catch (err) {
-    message = 'courses-api: Something went wrong in findById, could not delete course!';
+    message = 'courses-api: Something went wrong in findById, could not get course!';
     code = 500;
-    // return next(new HttpError('courses-api: Something went wrong in findById, could not delete course!', 500));
-    return handleError({ message, code, err });
+    // return next(new HttpError('courses-api: Something went wrong in findById, could not get course!', 500));
+    return handleError({ message, code, err, errFn: next });
   }
 
   if (!course) {
     message = 'courses-api: Could not find course for provided id.';
     code = 404;
     // return next(new HttpError('courses-api: Could not find course for provided id.', 404));
-    return handleError({ message, code });
+    return handleError({ message, code, errFn: next });
   }
 
   // console.log(`getCourse: "${course.title}"`);
@@ -411,7 +414,7 @@ const getCourses = async (req, res, next) => {
     message = 'courses-api: Fetching courses failed, please try again later.';
     code = 500;
     // return next(new HttpError('courses-api: Fetching courses failed, please try again later.', 500));
-    return handleError({ message, code, err });
+    return handleError({ message, code, err, errFn: next });
   }
 
   // console.log(`getCourses: ${courses.length} courses listed`);
@@ -430,7 +433,7 @@ const addCourse = async (req, res, next) => {
     message = `Input error: ${JSON.stringify(msgs)}`;
     code = 422;
     // return next(new HttpError(message, code));
-    return handleError({ message, code });
+    return handleError({ message, code, errFn: next });
   }
 
   const { course } = req.body;
@@ -443,7 +446,7 @@ const addCourse = async (req, res, next) => {
     message = err.message || 'courses-api: Add course failed, please try again later.';
     code = err.code || 500;
     // return next(new HttpError(message, code));
-    return handleError({ message, code, err });
+    return handleError({ message, code, err, errFn: next });
   }
 
   console.log(`Added course "${newCourse.title}"`);
@@ -464,7 +467,7 @@ const addCourses = async (req, res, next) => {
     message = err.message || 'courses-api: Load Excel file failed.';
     code = err.code || 500;
     // return next(new HttpError(message, code));
-    return handleError({ message, code, err });
+    return handleError({ message, code, err, errFn: next });
   }
   console.log(`${data.length} courses retrieved from input file`);
 
@@ -540,7 +543,7 @@ const deleteCourse = async (req, res, next) => {
     message = err.message || 'courses-api: Delete course failed, please try again later.';
     code = err.code || 500;
     // return next(new HttpError(message, code));
-    return handleError({ message, code, err });
+    return handleError({ message, code, err, errFn: next });
   }
 
   console.log(`Deleted "${title}"`);
@@ -561,7 +564,7 @@ const deleteCourses = async (req, res, next) => {
     message = 'courses-api: Fetching courses failed, please try again later.';
     code = 500;
     // return next(new HttpError('courses-api: Fetching courses failed, please try again later.', 500));
-    return handleError({ message, code, err });
+    return handleError({ message, code, err, errFn: next });
   }
 
   courses.map(async course => {
@@ -571,7 +574,7 @@ const deleteCourses = async (req, res, next) => {
       message = err.message || 'courses-api: Delete course failed, please try again later.';
       code = err.code || 500;
       // return next(new HttpError(message, code));
-      return handleError({ message, code, err });
+      return handleError({ message, code, err, errFn: next });
     }
   }
   );
@@ -595,7 +598,7 @@ const updateCourse = async (req, res, next) => {
     message = 'coursesdb-api: updateCourse: Invalid inputs passed, please check your data.';
     code = 422;
     // return next(new HttpError('coursesdb-api: updateCourse: Invalid inputs passed, please check your data.', 422));
-    return handleError({ message, code });
+    return handleError({ message, code, errFn: next });
   }
 
   const { update } = req.body;
@@ -608,14 +611,14 @@ const updateCourse = async (req, res, next) => {
     message = 'coursesdb-api: updateCourse: Something went wrong, could not update course!';
     code = 500;
     // return next(new HttpError('coursesdb-api: updateCourse: Something went wrong, could not update course!', 500));
-    return handleError({ message, code, err });
+    return handleError({ message, code, err, errFn: next });
   }
 
   if (!course) {
     message = 'coursesdb-api: updateCourse: Could not find course for provided id!';
     code = 404;
     // return next(new HttpError('coursesdb-api: updateCourse: Could not find course for provided id!', 404));
-    return handleError({ message, code });
+    return handleError({ message, code, errFn: next });
   }
 
   let originalCreator = null;
@@ -626,7 +629,7 @@ const updateCourse = async (req, res, next) => {
     message = 'coursesdb-api: updateCourse: Invalid creator id.';
     code = 404;
     // return next(new HttpError('coursesdb-api: updateCourse: Invalid creator id.', 404));
-    return handleError({ message, code });
+    return handleError({ message, code, errFn: next });
   }
 
   if (creator && creator !== originalCreator) {
@@ -634,7 +637,7 @@ const updateCourse = async (req, res, next) => {
     message = 'coursesdb-api: updateCourse: Not the owner of this course, cannot be updated.';
     code = 403;
     // return next(new HttpError('coursesdb-api: updateCourse: Not the owner of this course, cannot be updated.', 403));
-    return handleError({ message, code });
+    return handleError({ message, code, errFn: next });
   }
 
   const validFields = Object.keys(Course.schema.obj);
@@ -659,11 +662,17 @@ const updateCourse = async (req, res, next) => {
     message = 'coursesdb-api: updateCourse: Something went wrong, could not update course!';
     code = 500;
     // return next(new HttpError('coursesdb-api: updateCourse: Something went wrong, could not update course!', 500));
-    return handleError({ message, code, err });
+    return handleError({ message, code, err, errFn: next });
   }
 
   console.log(`updateCourse: Course "${course.title}" updated`);
   res.status(200).json({ course: course.toObject({ getters: true }) });
+};
+
+// return course metadata
+const getMetadata = async (req, res, next) => {
+  res.status(201).json({ metadata: formMetaData });
+  // res.status(201).json({ message: 'abc 123' });
 };
 
 // exports
@@ -674,3 +683,4 @@ exports.addCourses = addCourses;
 exports.deleteCourse = deleteCourse;
 exports.deleteCourses = deleteCourses;
 exports.updateCourse = updateCourse;
+exports.getMetadata = getMetadata;
