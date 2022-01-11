@@ -293,7 +293,7 @@ const addCourseToDb = async (course, creator) => {
 };
 
 // delete a course from the database
-const deleteCourseFromDb = async (courseId, creator) => {
+const deleteCourseFromDb = async (courseId, creator, isAdmin) => {
   let message, code;
   let course;
   try {
@@ -324,10 +324,12 @@ const deleteCourseFromDb = async (courseId, creator) => {
   }
 
   if (creator && creator !== originalCreator) {
-    message = 'deleteCourseFromDb: Not the owner of this course, cannot be deleted.';
-    code = 403;
-    // handleStandardError(message, code);
-    handleError({ message, code, err, errType: 'createAndThrowError' });
+    if (!isAdmin) {
+      message = 'deleteCourseFromDb: Not the owner of this course, cannot be deleted.';
+      code = 403;
+      // handleStandardError(message, code);
+      handleError({ message, code, err, errType: 'createAndThrowError' });
+    }
   }
 
   const title = course.title;
@@ -535,10 +537,11 @@ const deleteCourse = async (req, res, next) => {
   let message, code;
   const courseId = req.params.cid;
   const creator = req.userData.userId;
+  const isAdmin = req.userData.isAdmin;
 
   let title = "";
   try {
-    title = await deleteCourseFromDb(courseId, creator);
+    title = await deleteCourseFromDb(courseId, creator, isAdmin);
   } catch (err) {
     message = err.message || 'courses-api: Delete course failed, please try again later.';
     code = err.code || 500;
