@@ -1,4 +1,4 @@
-const metaData = {
+const metadata = {
   "purchaseSequence": {
     "description": "Position with overall course purchase history",
     "type": "Number",
@@ -143,3 +143,5 @@ const metaData = {
     "source": "Derived"
   },
 };
+
+exports.metadata = metadata;

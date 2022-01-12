@@ -37,9 +37,9 @@ router.use(checkAuth);
 router.post(
   '/addCourse',
   [
-    check('course.n')
+    check('course.purchaseSequence')
       .isInt({ min: 1 })
-      .withMessage('Purchase sequence must be integer and > 0'),
+      .withMessage('Purchase sequence (n) must be integer and > 0'),
     check('course.Title')
       .isLength({ min: 5 })
       .withMessage('Title must be at least 5 characters'),

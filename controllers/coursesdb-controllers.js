@@ -8,8 +8,10 @@ const HttpError = require('../helpers/http-error');
 // const { getEnvVar } = require('../helpers/getEnvVar');
 const Course = require('../models/course');
 const User = require('../models/user');
+
 const { formMetaData } = require('../models/formMetaData');
-const res = require('express/lib/response');
+const { metadata } = require('../models/courses-meta');
+const metaKeys = Object.keys(metadata);
 
 // **********************************************************************************************
 // utility functions start here!
@@ -34,33 +36,6 @@ const handleError = ({ message, code, err, errType = 'HttpError', errFn }) => {
       createAndThrowError(message, code);
   }
 };
-
-// wrapper for internal function errors
-// const handleStandardError = (message, code, err) => {
-//   console.log(`${message}, ${code}`);
-//   if (err) {
-//     console.log(err);
-//   }
-//   createAndThrowError(message, code);
-// };
-
-// wrapper for promise reject errors
-// const handlePromiseReject = (reject, message, code, err) => {
-//   console.log(`${message}, ${code}`);
-//   if (err) {
-//     console.log(err);
-//   }
-//   return reject({ message: message, code: code });
-// };
-
-// wrapper for HTTP errors
-// const handleHttpError = (next, message, code, err) => {
-//   console.log(`${message}, ${code}`);
-//   if (err) {
-//     console.log(err);
-//   }
-//   return next(new HttpError(message, code));
-// };
 
 // convert an Excel string date to a JS Date with error checking
 const dateObject = inputDate => {
@@ -119,16 +94,56 @@ const loadExcelData = filePath => {
   }
 };
 
+// sanitize course fields (i.e., handle Excel files)
+const sanitizeCourse = (course) => {
+  let newCourse = {};
+  const courseKeys = Object.keys(course);
+
+  let sourceKey;
+  let found = false;
+  courseKeys.forEach(courseKey => {
+    found = false;
+    // console.log(`Course key = ${courseKey}`);
+    if (metaKeys.includes(courseKey)) {
+      newCourse[courseKey] = course[courseKey];
+      // console.log(`  Key found! ${courseKey}`);
+      found = true;
+    } else {
+      sourceKey = null;
+      metaKeys.forEach(metaKey => {
+        if (found) {
+          return;
+        }
+        sourceKey = metadata[metaKey].sourceField;
+        if (courseKey === sourceKey) {
+          // console.log(`  Key found! ${courseKey} => ${metaKey}`);
+          newCourse[metaKey] = course[sourceKey];
+          found = true;
+        }
+      });
+      if (!found) {
+        console.log(`Course key ${courseKey} not recognized, ignored.`);
+      }
+    }
+  });
+
+  return newCourse;
+};
+
 // add a course to the database
-const addCourseToDb = async (course, creator) => {
+const addCourseToDb = async (courseOrig, creator) => {
   return new Promise(async (resolve, reject) => {
     let message, code;
     const startedDate = dateObject(null); // assumed to be unknown
     let wasStarted = false;
     let wasCompleted = false;
 
-    const title = course.Title.replace(/[\n\r]+/g, ' ');
-    const instructor = course.Instructor.replace(/[\n\r]+/g, ' ');
+    const course = sanitizeCourse(courseOrig);
+
+    // const title = course.Title.replace(/[\n\r]+/g, ' ');
+    const title = course.title.replace(/[\n\r]+/g, ' ');
+    // const instructor = course.Instructor.replace(/[\n\r]+/g, ' ');
+    const instructor = course.instructor.replace(/[\n\r]+/g, ' ');
 
     // check for an existing course
     let existingCourse;
@@ -156,7 +171,8 @@ const addCourseToDb = async (course, creator) => {
     };
 
     // compute dates and boolean status vars
-    const completedDate = dateObject(course.Finished);
+    // const completedDate = dateObject(course.Finished);
+    const completedDate = dateObject(course.dateCompleted);
     if (completedDate > startedDate) {
       wasCompleted = true;
       wasStarted = true;
@@ -169,21 +185,42 @@ const addCourseToDb = async (course, creator) => {
     // column title
     let newCourse;
     try {
+      // newCourse = new Course({
+      //   purchaseSequence: course.n,
+      //   title: title,
+      //   category: course.Category,
+      //   tools: course.Tools.replace(/[\n\r]+/g, ' '),
+      //   hours: course.Hours,
+      //   sections: course.Sections,
+      //   lectures: course.Lectures,
+      //   instructor: instructor,
+      //   dateBought: dateObject(course.Bought),
+      //   dateStarted: startedDate,
+      //   started: wasStarted,
+      //   dateCompleted: completedDate,
+      //   completed: wasCompleted,
+      //   description: course.desc,
+      //   notes: course.notes,
+      //   creator: creator,
+      //   provider: course.provider,
+      //   dateAdded: currDate,
+      //   dateUpdated: currDate
+      // });
       newCourse = new Course({
-        purchaseSequence: course.n,
+        purchaseSequence: course.purchaseSequence,
         title: title,
-        category: course.Category,
-        tools: course.Tools.replace(/[\n\r]+/g, ' '),
-        hours: course.Hours,
-        sections: course.Sections,
-        lectures: course.Lectures,
+        category: course.category,
+        tools: course.tools.replace(/[\n\r]+/g, ' '),
+        hours: course.hours,
+        sections: course.sections,
+        lectures: course.lectures,
         instructor: instructor,
-        dateBought: dateObject(course.Bought),
+        dateBought: dateObject(course.dateBought),
         dateStarted: startedDate,
         started: wasStarted,
         dateCompleted: completedDate,
         completed: wasCompleted,
-        description: course.desc,
+        description: course.description,
         notes: course.notes,
         creator: creator,
         provider: course.provider,
@@ -443,7 +480,7 @@ const addCourse = async (req, res, next) => {
 
   let newCourse;
   try {
-    newCourse = await addCourseToDb(course, creator, next);
+    newCourse = await addCourseToDb(course, creator);
   } catch (err) {
     message = err.message || 'courses-api: Add course failed, please try again later.';
     code = err.code || 500;
@@ -474,7 +511,7 @@ const addCourses = async (req, res, next) => {
   console.log(`${data.length} courses retrieved from input file`);
 
   let editedData = data.map(course => (
-    { ...course, notes: '', desc: '', provider: 'Udemy' }
+    { ...course, notes: '', description: '', provider: 'Udemy' }
   ));
 
   let addCoursePromises = editedData.map(course => {
