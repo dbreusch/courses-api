@@ -5,12 +5,10 @@ const mongoose = require('mongoose');
 
 const { createAndThrowError } = require('../helpers/error');
 const HttpError = require('../helpers/http-error');
-// const { getEnvVar } = require('../helpers/getEnvVar');
 const Course = require('../models/course');
 const User = require('../models/user');
 
-const { formMetaData } = require('../models/formMetaData');
-const { metadata } = require('../models/courses-meta');
+const { metadata } = require('../models/courses-metadata');
 const metaKeys = Object.keys(metadata);
 
 // **********************************************************************************************
@@ -411,6 +409,28 @@ const deleteCourseFromDb = async (courseId, creator, isAdmin) => {
   return title;
 };
 
+const createFormMetadata = () => {
+
+  let metaField;
+  let formMetadata = [];
+  let formField, formKeys;
+  const metaKeys = Object.keys(metadata);
+
+  metaKeys.forEach(metaKey => {
+    metaField = metadata[metaKey];
+    if (Object.keys(metaField).includes("form")) {
+      formField = {};
+      formField['id'] = metaKey;
+      formKeys = Object.keys(metaField["form"]);
+      formKeys.forEach(formKey => {
+        formField[formKey] = metaField["form"][formKey];
+      });
+      formMetadata.push(formField);
+    }
+  });
+  return formMetadata;
+};
+
 // **********************************************************************************************
 //
 // exported functions start here!
@@ -714,8 +734,8 @@ const updateCourse = async (req, res, next) => {
 
 // return course metadata
 const getMetadata = async (req, res, next) => {
-  res.status(201).json({ metadata: formMetaData });
-  // res.status(201).json({ message: 'abc 123' });
+  const formMetadata = createFormMetadata();
+  res.status(201).json({ metadata: formMetadata });
 };
 
 // exports
